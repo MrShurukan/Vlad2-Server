@@ -49,7 +49,11 @@ public class PlaylistController
                     } while (_bot.Repeat);
 
                     if (!wasRepeat)
+                    {
+                        if (_bot.LastTextChannel is not null)
+                            await _bot.LastTextChannel.SendMessageAsync($"Играю {GetNextSongName()} (автоматический next)");
                         await _bot.NextPlayback();
+                    }
                 }
                 catch (Exception e)
                 {
@@ -160,7 +164,7 @@ public class PlaylistController
     {
         var fileList = GetFileList();
         var index = fileList
-            .FindIndex(x => x.Split(".")[1].Contains(query, StringComparison.CurrentCultureIgnoreCase));
+            .FindIndex(x => x.Split(".", 2)[1].Contains(query, StringComparison.CurrentCultureIgnoreCase));
 
         if (index == -1)
         {
@@ -201,8 +205,9 @@ public class PlaylistController
             };
 
             fileList = Directory.GetFiles(_soundDirectory)
-                .ToList()
-                .ConvertAll(Path.GetFileName)!;
+                .Select(Path.GetFileName)
+                .Order()
+                .ToList()!;
 
             _memoryCache.Set("fileList", fileList, options);
         }
