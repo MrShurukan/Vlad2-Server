@@ -7,122 +7,90 @@ namespace DiscordBot;
 
 public class MainInteractionModule(Bot bot) : InteractionModuleBase
 {
-    public static ulong? TestChannelId { get; private set; } = null;
-    public static IAudioClient? AudioClient { get; private set; } = null;
-    private static AudioOutStream? _audioOutStream = null;
-
-    private static int? _lastPlaylistIndex = null;
-
-    public static IMessageChannel? LastTextChannel { get; private set; } = null;
-    
-    [SlashCommand("echo", "Тестовая команда для проверки бота")]
-    public async Task Echo(string input)
-    {
-        await RespondAsync(input);
-    }
-
-    [SlashCommand("test-remember-channel", "[Админ] Данная команда нужна для проверки связки между Overlord и DiscordBot")]
-    public async Task TestRememberChannel(ITextChannel channel)
-    {
-        TestChannelId = channel.Id;
-        await RespondAsync(text: $"Успешно запомнил канал '{TestChannelId}'", ephemeral: true);
-    }
-    
     [SlashCommand("join", "Да начнётся треш в голосовом канале!", runMode: RunMode.Async)]
     public async Task Join()
     {
+        await ConnectToVoice();
+        await RespondAsync("Успешно");
+    }
+
+    private async Task ConnectToVoice()
+    {
+        bot.LastTextChannel = Context.Channel;
+        
         var user = Context.User as IGuildUser;
         if (user!.VoiceChannel == null)
         {
-            await RespondAsync("Дядя, в канал-то зайди голосовой ежжи", ephemeral: true);
+            await bot.LastTextChannel.SendMessageAsync("Дядя, в канал-то зайди голосовой ежжи");
             return;
         }
 
-        LastTextChannel = Context.Channel;
-
         try
         {
-            await RespondAsync("Стартуем!");
-            AudioClient = await user.VoiceChannel.ConnectAsync();
+            await bot.LastTextChannel.SendMessageAsync("Стартуем!");
+            bot.AudioClient = await user.VoiceChannel.ConnectAsync();
         }
         catch (Exception e)
         {
-            Console.WriteLine("Error while connecting to a VC: " + e.Message);
+           await bot.LastTextChannel.SendMessageAsync("Error while connecting to a VC: " + e.Message);
         }
     }
-
-    private const string SoundDirectory = "../FileWebServer/uploads";
-
-    // [SlashCommand("play-sound", "Играет звук из папки со звуками бота", runMode: RunMode.Async)]
-    // public async Task PlaySound([Summary(name: "file-name", description: "Имя файла")] string fileName)
-    // {
-    //     await DeferAsync();
-    //     
-    //     try
-    //     {
-    //         await PlayAudioAsync(Path.GetFullPath($"{SoundDirectory}/{fileName}"));
-    //     }
-    //     catch (Exception e)
-    //     {
-    //         await ModifyOriginalResponseAsync(x => x.Content = $"Произошла ошибка: {e.Message}");
-    //         return;
-    //     }
-    //
-    //     await ModifyOriginalResponseAsync(x => x.Content= $"Звук '{fileName}' проигран");
-    // }
 
     [SlashCommand("vlad", "Играет из великого плейлиста 'Бамбузлинг в машину'", runMode: RunMode.Async)]
     public async Task PlayFromPlaylist([Summary(name: "name", description: "Поиск этого имени по плейлисту")] string name)
     {
-        await DeferAsync();
-
-        var file = Directory.GetFiles(SoundDirectory)
-            .ToList()
-            .ConvertAll(Path.GetFileName)
-            .FirstOrDefault(x => x?.Contains(name, StringComparison.CurrentCultureIgnoreCase) == true);
+        var index = PlaylistController.FindSongIndex(name, out var file);
 
         if (file is null)
         {
-            await ModifyOriginalResponseAsync(x => x.Content = $"Не удалось найти трек с таким названием :(");
+            await RespondAsync("Не удалось найти трек с таким названием :(");
             return;
         }
 
-        if (!int.TryParse(file.Split('.')[0], out var parsedIndex))
-        {
-            _lastPlaylistIndex = 1;
-            await ReplyAsync($"Не смог пропарсить индекс в плейлисте ({file.Split(".")[0]})");
-        }
+        if (bot.AudioClient is null)
+            await ConnectToVoice();
+        
+        await RespondAsync($"Играю: {file}");
+        await bot.PlayNewSong(index);
+    }
 
-        _lastPlaylistIndex = parsedIndex;
-        
-        await ModifyOriginalResponseAsync(x => x.Content= $"Играю: {file}");
-        bot.PlayNewSong((int)_lastPlaylistIndex);
-        
-        try
+    [SlashCommand("vlad-prefix", "Играет из великого плейлиста 'Бамбузлинг в машину' по префиксу в плейлисте", runMode: RunMode.Async)]
+    public async Task PlayByPrefix([Summary(name: "prefix", description: "Префикс песни (с 1)")] int prefix)
+    {
+        var index = PlaylistController.FindSongIndex(prefix, out var file);
+
+        if (file is null)
         {
-            await PlayAudioAsync(Path.GetFullPath($"{SoundDirectory}/{file}"));
-        }
-        catch (Exception e)
-        {
-            await ModifyOriginalResponseAsync(x => x.Content = $"Произошла ошибка: {e.Message}");
+            await RespondAsync("Не удалось найти трек с таким названием :(");
             return;
         }
+        
+        if (bot.AudioClient is null)
+            await ConnectToVoice();
+        
+        await RespondAsync($"Играю: {file}");
+        await bot.PlayNewSong(index);
+    }
+
+    [SlashCommand("random", "Играет случайную песню из 'Бамбузлинг в машину'", runMode: RunMode.Async)]
+    public async Task PlayRandomSong()
+    {
+        await RespondAsync("Пока не работает ( •̀ ω •́ )y");
+    }
+    
+    [SlashCommand("song-list", "Показывает список доступных песен в плейлисте 'Бамбузлинг в машину'", runMode: RunMode.Async)]
+    public async Task SongList()
+    {
+        await RespondAsync("Пока не работает ( •̀ ω •́ )y");
     }
     
     [SlashCommand("stop", "Останавливает текущую песню", runMode: RunMode.Async)]
     public async Task Stop()
     {
-        if (AudioClient != null)
+        if (bot.AudioClient != null)
         {
-            if (_audioOutStream is not null)
-            {
-                await _audioOutStream.DisposeAsync();
-                _audioOutStream = null;
-            }
-
-            // Disconnect the audio client
             await RespondAsync("Остановил песню");
-            bot.StopPlayback();
+            await bot.StopPlayback();
         }
         else
         {
@@ -133,187 +101,77 @@ public class MainInteractionModule(Bot bot) : InteractionModuleBase
     [SlashCommand("next", "Переключает на следующую песню", runMode: RunMode.Async)]
     public async Task Next()
     {
-        await DeferAsync();
-        
-        if (_lastPlaylistIndex is null)
+        if (bot.AudioOutStream is null)
         {
             await RespondAsync("Шиз, я не играю сейчас ничего");
             return;
         }
-        
-        var files = Directory.GetFiles(SoundDirectory)
-            .ToList()
-            .ConvertAll(Path.GetFileName);
-        
-        var currentIndex = files
-            .FindIndex(x => int.Parse(x.Split('.')[0]) == _lastPlaylistIndex);
 
-        if (currentIndex > files.Count)
+        var file = PlaylistController.GetNextSongName();
+        if (file is null)
         {
-            await ModifyOriginalResponseAsync(x => x.Content = $"Не удалось переключиться вперед :(");
+            await RespondAsync("Не смог включить следующую песню :(");
             return;
         }
-
-        var file = files[currentIndex + 1];
-        _lastPlaylistIndex = currentIndex + 1;
         
-        await ModifyOriginalResponseAsync(x => x.Content= $"Играю: {file}");
-        bot.NextPlayback();
-        
-        try
+        if (!bot.Repeat)
+            await RespondAsync($"Играю: {file}");
+        else
         {
-            await PlayAudioAsync(Path.GetFullPath($"{SoundDirectory}/{file}"));
+            bot.Repeat = false;
+            await RespondAsync($"Играю: {file} (Сбросил флаг повтора песен)");
         }
-        catch (Exception e)
-        {
-            await ModifyOriginalResponseAsync(x => x.Content = $"Произошла ошибка: {e.Message}");
-            return;
-        }
+        await bot.NextPlayback();
     }
     
     [SlashCommand("prev", "Переключает на предыдущую песню", runMode: RunMode.Async)]
     public async Task Previous()
     {
-        await DeferAsync();
-        
-        if (_lastPlaylistIndex is null)
+        if (bot.AudioOutStream is null)
         {
             await RespondAsync("Шиз, я не играю сейчас ничего");
             return;
         }
 
-        var files = Directory.GetFiles(SoundDirectory);
-        _lastPlaylistIndex--;
-        // TODO: Min Index
-        
-        var file = files
-            .ToList()
-            .ConvertAll(Path.GetFileName)
-            .FirstOrDefault(x => int.Parse(x.Split('.')[0]) == _lastPlaylistIndex);
-
+        var file = PlaylistController.GetPreviousSongName();
         if (file is null)
         {
-            await ModifyOriginalResponseAsync(x => x.Content = $"Не удалось переключиться назад :(");
+            await RespondAsync("Не смог включить предыдущую песню :(");
             return;
         }
         
-        await ModifyOriginalResponseAsync(x => x.Content= $"Играю: {file}");
-        bot.PreviousPlayback();
-        
-        try
+        if (!bot.Repeat)
+            await RespondAsync($"Играю: {file}");
+        else
         {
-            await PlayAudioAsync(Path.GetFullPath($"{SoundDirectory}/{file}"));
+            bot.Repeat = false;
+            await RespondAsync($"Играю: {file} (Сбросил флаг повтора песен)");
         }
-        catch (Exception e)
-        {
-            await ModifyOriginalResponseAsync(x => x.Content = $"Произошла ошибка: {e.Message}");
-            return;
-        }
+        await bot.PreviousPlayback();
     }
-    
-    public async Task PlayAudioAsync(string path)
-    {
-        if (AudioClient is null)
-            throw new Exception("Не подключен к какому-либо каналу");
 
-        if (_audioOutStream is not null)
+    [SlashCommand("repeat", "Повторять текущий трек без конца (сбрасывается, если поменять трек)")]
+    public async Task Repeat()
+    {
+        if (bot.Repeat)
         {
-            await _audioOutStream.DisposeAsync();
-            _audioOutStream = null;
+            await RespondAsync("Повтор трека выключен");
+            bot.Repeat = false;
         }
-        
-        await SendAsync(AudioClient, path);
-    }
-    
-    private async Task SendAsync(IAudioClient client, string path)
-    {
-        // Create FFmpeg using the previous example
-        using (var ffmpeg = CreateStream(path))
-        using (var output = ffmpeg.StandardOutput.BaseStream)
+        else
         {
-            _audioOutStream ??= client.CreatePCMStream(AudioApplication.Mixed);
-            try
-            {
-                await output.CopyToAsync(_audioOutStream);
-
-                Thread.Sleep(2000);
-                
-                #region Next
-
-                var files = Directory.GetFiles(SoundDirectory)
-                    .ToList()
-                    .ConvertAll(Path.GetFileName);
-        
-                var currentIndex = files
-                    .FindIndex(x => int.Parse(x.Split('.')[0]) == _lastPlaylistIndex);
-
-                if (currentIndex > files.Count)
-                    return;
-
-                var file = files[currentIndex + 1];
-                _lastPlaylistIndex = currentIndex + 1;
-
-                if (LastTextChannel is not null)
-                    await LastTextChannel.SendMessageAsync($"Играю {file}");
-        
-                try
-                {
-                    await PlayAudioAsync(Path.GetFullPath($"{SoundDirectory}/{file}"));
-                }
-                catch (Exception e)
-                {
-                    Console.WriteLine($"Произошла ошибка: {e.Message}");
-                    return;
-                }
-
-                #endregion
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine($"Error while sending audio: {e.Message}");
-                throw;
-            }
-            finally
-            {
-                await _audioOutStream.FlushAsync();
-            }
+            await RespondAsync("Повтор трека включен");
+            bot.Repeat = true;
         }
-    }
-    
-    private static Process CreateStream(string path)
-    {
-        return Process.Start(new ProcessStartInfo
-        {
-            FileName = "ffmpeg",
-            Arguments = $"-hide_banner -loglevel panic -i \"{path}\" -ac 2 -f s16le -ar 48000 pipe:1",
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-        }) ?? throw new Exception("Не смог создать Process (Process.Start вернул null)");
     }
     
     [SlashCommand("leave", "Хватит на сегодня интернета")]
     public async Task Leave()
     {
-        // var audioClient = (Context.Channel as IGuildChannel)!.Guild.AudioClient;
-
-        if (AudioClient != null)
+        if (bot.AudioClient != null)
         {
-            // Stop the audio client if needed (e.g., if it's playing or streaming something)
-            // ...
-
-            if (_audioOutStream is not null)
-            {
-                await _audioOutStream.DisposeAsync();
-                _audioOutStream = null;
-            }
-
-            // Disconnect the audio client
-            await AudioClient.StopAsync();
+            await bot.LeaveChannel();
             await RespondAsync("А на сегодня всё...");
-
-            _lastPlaylistIndex = null;
-            AudioClient = null;
-            LastTextChannel = null;
         }
         else
         {

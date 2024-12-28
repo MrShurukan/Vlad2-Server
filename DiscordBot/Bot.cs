@@ -1,4 +1,5 @@
 ﻿using Discord;
+using Discord.Audio;
 using Discord.Interactions;
 using Discord.WebSocket;
 using Microsoft.Extensions.DependencyInjection;
@@ -7,9 +8,16 @@ namespace DiscordBot;
 
 public class Bot(IServiceProvider serviceProvider)
 {
+    public IAudioClient? AudioClient { get; set; } = null;
+    public AudioOutStream? AudioOutStream = null;
+    public bool Repeat = false;
+    
+    public IMessageChannel? LastTextChannel { get; set; } = null;
+    
     private readonly DiscordSocketClient _client = new();
     private InteractionService _interactionService = default!;
     private Settings _settings;
+    
     private Task Log(LogMessage msg)
     {
         Console.WriteLine(msg.ToString());
@@ -62,18 +70,28 @@ public class Bot(IServiceProvider serviceProvider)
 
     public event PlaybackChanged? PlaybackChanged;
 
-    public void StopPlayback() => PlaybackChanged?.Invoke(PlaybackChangeType.Stop, null);
-    public void PlayNewSong(int songIndex) => PlaybackChanged?.Invoke(PlaybackChangeType.NewSong, songIndex);
-    public void NextPlayback() => PlaybackChanged?.Invoke(PlaybackChangeType.Next, null);
-    public void PreviousPlayback() => PlaybackChanged?.Invoke(PlaybackChangeType.Previous, null);
+    public async Task StopPlayback() => 
+        await Task.Run(() => { PlaybackChanged?.Invoke(PlaybackChangeType.Stop, null); });
+    public async Task PlayNewSong(int songIndex) =>
+        await Task.Run(() => { PlaybackChanged?.Invoke(PlaybackChangeType.NewSong, songIndex); });
+    public async Task NextPlayback() => 
+        await Task.Run(() => { PlaybackChanged?.Invoke(PlaybackChangeType.Next, null); });
+    public async Task PreviousPlayback() => 
+        await Task.Run(() => { PlaybackChanged?.Invoke(PlaybackChangeType.Previous, null); });
+    public async Task LeaveChannel() => 
+        await Task.Run(() => { PlaybackChanged?.Invoke(PlaybackChangeType.Leave, null); });
+    public async Task ToggleRepeat() => 
+        await Task.Run(() => { PlaybackChanged?.Invoke(PlaybackChangeType.ToggleRepeat, null); });
 }
 
 public enum PlaybackChangeType
 {
     Stop,
+    Leave,
     NewSong,
     Next,
-    Previous
+    Previous,
+    ToggleRepeat
 }
 
-public delegate void PlaybackChanged(PlaybackChangeType change, int? songIndex);
+public delegate Task PlaybackChanged(PlaybackChangeType change, int? songIndex);

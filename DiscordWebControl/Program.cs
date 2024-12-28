@@ -11,6 +11,7 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddControllers();
 
+builder.Services.AddMemoryCache();
 builder.Services.AddSingleton<Bot>();
 builder.Services.AddSingleton<PlaylistController>();
 
