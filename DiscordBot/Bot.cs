@@ -41,7 +41,7 @@ public class Bot(IServiceProvider serviceProvider)
             Name = PlaylistController.SongName,
             IsRepeat = Repeat,
             IsSongPlaying = PlaylistController.IsSongPlaying,
-            InVoiceChannel = AudioClient is not null
+            InVoiceChannel = AudioClient is not null && AudioClient.ConnectionState == ConnectionState.Connected
         };
     }
     
