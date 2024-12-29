@@ -42,7 +42,7 @@ public class BotController(Bot bot) : Controller
     
     private async Task PlaySongByIndex(ulong? channelId, int songIndex, string notFoundErrorMessage)
     {
-        if (channelId is null && bot.AudioClient is null && bot.AudioOutStream is null)
+        if (channelId is null && (bot.AudioClient is null || PlaylistController.SongName is null))
         {
             throw new StatusBasedException(400,
                 "Дискорд бот сейчас не подключен ни к какому каналу, нужно передать channelId");
@@ -127,7 +127,7 @@ public class BotController(Bot bot) : Controller
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> Stop()
     {
-        if (bot.AudioClient is null && bot.AudioOutStream is null)
+        if (bot.AudioClient is null || PlaylistController.SongName is null)
         {
             throw new StatusBasedException(400, "Дискорд бот сейчас ничего не играет");
         }

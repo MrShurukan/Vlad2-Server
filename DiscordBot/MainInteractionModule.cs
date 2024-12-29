@@ -28,7 +28,7 @@ public class MainInteractionModule(Bot bot) : InteractionModuleBase
         try
         {
             await bot.LastTextChannel.SendMessageAsync("Стартуем!");
-            bot.AudioClient = await user.VoiceChannel.ConnectAsync();
+            await bot.ConnectToVoiceChannel(user.VoiceChannel.Id);
         }
         catch (Exception e)
         {
@@ -101,7 +101,7 @@ public class MainInteractionModule(Bot bot) : InteractionModuleBase
     [SlashCommand("next", "Переключает на следующую песню", runMode: RunMode.Async)]
     public async Task Next()
     {
-        if (bot.AudioOutStream is null)
+        if (PlaylistController.SongName is null)
         {
             await RespondAsync("Шиз, я не играю сейчас ничего");
             return;
@@ -127,7 +127,7 @@ public class MainInteractionModule(Bot bot) : InteractionModuleBase
     [SlashCommand("prev", "Переключает на предыдущую песню", runMode: RunMode.Async)]
     public async Task Previous()
     {
-        if (bot.AudioOutStream is null)
+        if (PlaylistController.SongName is null)
         {
             await RespondAsync("Шиз, я не играю сейчас ничего");
             return;

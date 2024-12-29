@@ -9,10 +9,18 @@ namespace DiscordBot;
 
 public class Bot(IServiceProvider serviceProvider)
 {
-    public IAudioClient? AudioClient { get; set; } = null;
-    public AudioOutStream? AudioOutStream = null;
+    public ulong? VoiceChannelId { get; private set; } = null;
+    public IAudioClient? AudioClient { get; private set; } = null;
     public bool Repeat = false;
-    public string TrackName { get; private set; }
+
+    public async Task ResetAudioClient()
+    {
+        if (AudioClient != null)
+            await AudioClient.StopAsync();
+
+        AudioClient = null;
+        VoiceChannelId = null;
+    }
     
     public IMessageChannel? LastTextChannel { get; set; } = null;
 
@@ -32,7 +40,8 @@ public class Bot(IServiceProvider serviceProvider)
         {
             Name = PlaylistController.SongName,
             IsRepeat = Repeat,
-            IsSongPlaying = PlaylistController.SongName is not null
+            IsSongPlaying = PlaylistController.IsSongPlaying,
+            InVoiceChannel = AudioClient is not null
         };
     }
     
@@ -92,6 +101,7 @@ public class Bot(IServiceProvider serviceProvider)
         try
         {
             AudioClient = await channel.ConnectAsync();
+            VoiceChannelId = channelId;
         }
         catch (Exception e)
         {
@@ -107,11 +117,11 @@ public class Bot(IServiceProvider serviceProvider)
     public async Task StopPlayback() => 
         await Task.Run(() => { PlaybackChanged?.Invoke(PlaybackChangeType.Stop, null); });
     public async Task PlayNewSong(int songIndex) =>
-        await Task.Run(() => { PlaybackChanged?.Invoke(PlaybackChangeType.NewSong, songIndex); });
+        await Task.Run(async () => { await StopPlayback(); PlaybackChanged?.Invoke(PlaybackChangeType.NewSong, songIndex); });
     public async Task NextPlayback() => 
-        await Task.Run(() => { PlaybackChanged?.Invoke(PlaybackChangeType.Next, null); });
+        await Task.Run(async () => { await StopPlayback(); PlaybackChanged?.Invoke(PlaybackChangeType.Next, null); });
     public async Task PreviousPlayback() => 
-        await Task.Run(() => { PlaybackChanged?.Invoke(PlaybackChangeType.Previous, null); });
+        await Task.Run(async () => { await StopPlayback(); PlaybackChanged?.Invoke(PlaybackChangeType.Previous, null); });
     public async Task LeaveChannel() => 
         await Task.Run(() => { PlaybackChanged?.Invoke(PlaybackChangeType.Leave, null); });
     public async Task SetRepeat(bool repeat) => 

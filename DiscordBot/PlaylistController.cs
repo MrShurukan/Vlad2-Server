@@ -11,7 +11,10 @@ public class PlaylistController
     private static IMemoryCache _memoryCache = null!;
     private static int? _songIndex = null;
 
+    private static CancellationTokenSource _cancellationTokenSource = new();
+
     public static string? SongName { get; private set; } = null;
+    public static bool IsSongPlaying { get; private set; }
 
     public PlaylistController(Bot bot, IMemoryCache memoryCache)
     {
@@ -33,9 +36,6 @@ public class PlaylistController
                         await _bot.LastTextChannel.SendMessageAsync("Не был указан индекс при PlaybackChangeType.NewSong");
                     return;
                 }
-
-                if (_bot.AudioOutStream is not null)
-                    await _bot.StopPlayback();
                 
                 var file = GetFileList()[(int)songIndex];
                 _songIndex = songIndex;
@@ -46,9 +46,12 @@ public class PlaylistController
                     var wasRepeat = _bot.Repeat;
                     do
                     {
-                        await PlayAudioAsync(Path.GetFullPath($"{_soundDirectory}/{file}"));
+                        _cancellationTokenSource = new CancellationTokenSource();
+                        IsSongPlaying = true;
+                        
+                        await PlayAudioAsync(Path.GetFullPath($"{_soundDirectory}/{file}"), _cancellationTokenSource.Token);
                         Thread.Sleep(1000);
-                        await _bot.StopPlayback();
+                        // await _bot.StopPlayback();
                     } while (_bot.Repeat);
 
                     if (!wasRepeat)
@@ -66,32 +69,25 @@ public class PlaylistController
                 }
                 break;
             case PlaybackChangeType.Stop:
-                if (_bot.AudioOutStream is not null)
-                {
-                    await _bot.AudioOutStream.DisposeAsync();
-                    _bot.AudioOutStream = null;
-                }
+                await _cancellationTokenSource.CancelAsync();
+                _cancellationTokenSource = new CancellationTokenSource();
+                
+                IsSongPlaying = false;
                 
                 break;
             case PlaybackChangeType.Leave:
-                if (_bot.AudioOutStream is not null) 
-                    await _bot.AudioOutStream.DisposeAsync();
-                
-                if (_bot.AudioClient != null)
-                    await _bot.AudioClient.StopAsync();
+                await _bot.StopPlayback();
                 
                 _songIndex = null;
                 SongName = null;
-                _bot.AudioClient = null;
+                await _bot.ResetAudioClient();
                 _bot.LastTextChannel = null;
+                IsSongPlaying = false;
 
                 break;
             case PlaybackChangeType.Next:
                 if (_songIndex is null) return;
                 var nextIndex = GetNextSongIndex();
-
-                if (_bot.AudioOutStream is not null)
-                    await _bot.StopPlayback();
                 
                 await _bot.PlayNewSong(nextIndex);
                 
@@ -99,9 +95,6 @@ public class PlaylistController
             case PlaybackChangeType.Previous:
                 if (_songIndex is null) return;
                 var prevIndex = GetPreviousSongIndex();
-
-                if (_bot.AudioOutStream is not null)
-                    await _bot.StopPlayback();
                 
                 await _bot.PlayNewSong(prevIndex);
                 
@@ -117,41 +110,23 @@ public class PlaylistController
     }
     
         
-    private async Task PlayAudioAsync(string path)
+    private async Task PlayAudioAsync(string path, CancellationToken token)
     {
         if (_bot.AudioClient is null)
             throw new Exception("Не подключен к какому-либо каналу");
-
-        if (_bot.AudioOutStream is not null)
-        {
-            await _bot.AudioOutStream.DisposeAsync();
-            _bot.AudioOutStream = null;
-        }
         
-        await SendAsync(_bot.AudioClient, path);
+        await SendAsync(_bot.AudioClient, path, token);
     }
     
-    private async Task SendAsync(IAudioClient client, string path)
+    private async Task SendAsync(IAudioClient client, string path, CancellationToken token)
     {
         // Create FFmpeg using the previous example
-        using (var ffmpeg = CreateStream(path))
-        using (var output = ffmpeg.StandardOutput.BaseStream)
-        {
-            _bot.AudioOutStream ??= client.CreatePCMStream(AudioApplication.Mixed);
-            try
-            {
-                await output.CopyToAsync(_bot.AudioOutStream);
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine($"Error while sending audio: {e.Message}");
-                throw;
-            }
-            finally
-            {
-                await _bot.AudioOutStream.FlushAsync();
-            }
-        }
+        using var ffmpeg = CreateStream(path);
+        await using var output = ffmpeg.StandardOutput.BaseStream;
+        await using var discord = client.CreatePCMStream(AudioApplication.Mixed);
+        
+        try { await output.CopyToAsync(discord, token); }
+        finally { await discord.FlushAsync(CancellationToken.None); }
     }
     
     private static Process CreateStream(string path)
