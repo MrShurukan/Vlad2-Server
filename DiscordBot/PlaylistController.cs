@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using Discord.Audio;
 using Microsoft.Extensions.Caching.Memory;
@@ -11,6 +11,8 @@ public class PlaylistController
     private static IMemoryCache _memoryCache = null!;
     private static int? _songIndex = null;
 
+    public static string? SongName { get; private set; } = null;
+
     public PlaylistController(Bot bot, IMemoryCache memoryCache)
     {
         _bot = bot;
@@ -19,7 +21,7 @@ public class PlaylistController
         _bot.PlaybackChanged += BotOnPlaybackChanged;
     }
 
-    private async Task BotOnPlaybackChanged(PlaybackChangeType change, int? songIndex)
+    private async Task BotOnPlaybackChanged(PlaybackChangeType change, int? songIndex, bool repeat)
     {
         Console.WriteLine($"!{change.ToString()}: {songIndex}");
         switch (change)
@@ -37,6 +39,7 @@ public class PlaylistController
                 
                 var file = GetFileList()[(int)songIndex];
                 _songIndex = songIndex;
+                SongName = file;
                 
                 try
                 {
@@ -78,6 +81,7 @@ public class PlaylistController
                     await _bot.AudioClient.StopAsync();
                 
                 _songIndex = null;
+                SongName = null;
                 _bot.AudioClient = null;
                 _bot.LastTextChannel = null;
 
@@ -101,6 +105,10 @@ public class PlaylistController
                 
                 await _bot.PlayNewSong(prevIndex);
                 
+                break;
+            
+            case PlaybackChangeType.SetRepeat:
+                _bot.Repeat = repeat;
                 break;
             
             default:
@@ -194,7 +202,7 @@ public class PlaylistController
         return index;
     }
     
-    private static List<string> GetFileList()
+    public static List<string> GetFileList()
     {
         _memoryCache.TryGetValue("fileList", out List<string>? fileList);
         if (fileList is null)

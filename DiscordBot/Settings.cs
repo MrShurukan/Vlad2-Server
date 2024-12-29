@@ -7,6 +7,7 @@ public class Settings
     public string Token { get; set; }
     public bool LeftAloneAutoDisconnectFromVoice { get; set; }
     public int LeftAloneAutoDisconnectMinutes { get; set; }
+    public ulong GuildId { get; set; }
 
     private static readonly object WriteToFileLock = new();
     private const string SettingsPath = $"../{nameof(DiscordBot)}/discordbot.json";

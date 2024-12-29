@@ -2,6 +2,7 @@
 using Discord.Audio;
 using Discord.Interactions;
 using Discord.WebSocket;
+using DiscordBot.Exceptions;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace DiscordBot;
@@ -11,31 +12,42 @@ public class Bot(IServiceProvider serviceProvider)
     public IAudioClient? AudioClient { get; set; } = null;
     public AudioOutStream? AudioOutStream = null;
     public bool Repeat = false;
+    public string TrackName { get; private set; }
     
     public IMessageChannel? LastTextChannel { get; set; } = null;
-    
-    private readonly DiscordSocketClient _client = new();
+
+    public DiscordSocketClient Client { get; private set; } = new();
     private InteractionService _interactionService = default!;
-    private Settings _settings;
+    public Settings Settings { get; private set; }
     
     private Task Log(LogMessage msg)
     {
         Console.WriteLine(msg.ToString());
         return Task.CompletedTask;
     }
+
+    public TrackStatus GetTrackStatus()
+    {
+        return new TrackStatus()
+        {
+            Name = PlaylistController.SongName,
+            IsRepeat = Repeat,
+            IsSongPlaying = PlaylistController.SongName is not null
+        };
+    }
     
     public void UpdateSettings(Settings discordSettings)
     {
-        _settings = discordSettings;
+        Settings = discordSettings;
     }
 
     public async Task StartAsync()
     {
-        _client.Log += Log;
+        Client.Log += Log;
         // _client.Ready += ClientReady;
         // _client.SlashCommandExecuted += SlashCommandHandler;
 
-        _interactionService = new InteractionService(_client.Rest);
+        _interactionService = new InteractionService(Client.Rest);
         try
         {
             await _interactionService.AddModulesAsync(typeof(MainInteractionModule).Assembly, serviceProvider);
@@ -46,18 +58,18 @@ public class Bot(IServiceProvider serviceProvider)
             throw;
         }
 
-        _client.InteractionCreated += async (x) =>
+        Client.InteractionCreated += async (x) =>
         {
-            var ctx = new SocketInteractionContext(_client, x);
+            var ctx = new SocketInteractionContext(Client, x);
             await _interactionService.ExecuteCommandAsync(ctx, serviceProvider);
         };
 
-        _settings = await Settings.GetFromFileAsync();
-        var discordToken = _settings.Token;
+        Settings = await Settings.GetFromFileAsync();
+        var discordToken = Settings.Token;
 
         Console.WriteLine("Запускаю бота...");
-        await _client.LoginAsync(TokenType.Bot, discordToken);
-        await _client.StartAsync();
+        await Client.LoginAsync(TokenType.Bot, discordToken);
+        await Client.StartAsync();
 
         // Block this task until the program is closed.
         await Task.Delay(-1);
@@ -66,6 +78,28 @@ public class Bot(IServiceProvider serviceProvider)
     public async Task CreateSlashCommandsAsync(ulong guildId)
     {
         await _interactionService.RegisterCommandsToGuildAsync(guildId);
+    }
+
+    public async Task ConnectToVoiceChannel(ulong channelId)
+    {
+        var channel = Client.GetGuild(Settings.GuildId).GetVoiceChannel(channelId);
+
+        if (channel is null)
+        {
+            throw new StatusBasedException(400, $"Не удалось найти канал с id {channelId}");
+        }
+        
+        try
+        {
+            AudioClient = await channel.ConnectAsync();
+        }
+        catch (Exception e)
+        {
+            if (LastTextChannel is not null)
+                await LastTextChannel.SendMessageAsync("Error while connecting to a VC: " + e.Message);
+            else
+                throw;
+        }
     }
 
     public event PlaybackChanged? PlaybackChanged;
@@ -80,8 +114,8 @@ public class Bot(IServiceProvider serviceProvider)
         await Task.Run(() => { PlaybackChanged?.Invoke(PlaybackChangeType.Previous, null); });
     public async Task LeaveChannel() => 
         await Task.Run(() => { PlaybackChanged?.Invoke(PlaybackChangeType.Leave, null); });
-    public async Task ToggleRepeat() => 
-        await Task.Run(() => { PlaybackChanged?.Invoke(PlaybackChangeType.ToggleRepeat, null); });
+    public async Task SetRepeat(bool repeat) => 
+        await Task.Run(() => { PlaybackChanged?.Invoke(PlaybackChangeType.SetRepeat, null, repeat); });
 }
 
 public enum PlaybackChangeType
@@ -91,7 +125,7 @@ public enum PlaybackChangeType
     NewSong,
     Next,
     Previous,
-    ToggleRepeat
+    SetRepeat
 }
 
-public delegate Task PlaybackChanged(PlaybackChangeType change, int? songIndex);
+public delegate Task PlaybackChanged(PlaybackChangeType change, int? songIndex, bool repeat = false);

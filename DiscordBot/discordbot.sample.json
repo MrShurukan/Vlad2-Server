@@ -2,6 +2,7 @@
     "Comment": "Переименуйте этот файл в discordbot.json, заполните данными и пользуйтесь ;)",
     
     "Token": "abcdefg123",
+    "GuildId": "123456789123456789",
     "LeftAloneAutoDisconnectFromVoice": true,
     "LeftAloneAutoDisconnectMinutes": 5
 }
